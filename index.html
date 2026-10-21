@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Postdoc Tracker</title>
+<style>
+body{font:15px system-ui,sans-serif;margin:0;background:#fff;color:#111}
+header{padding:12px;background:#2563eb;color:#fff;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+header b{font-size:17px;flex:1}
+main{padding:10px;max-width:860px;margin:auto}
+input,select,button,textarea{font:inherit;padding:7px;margin:2px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#111}
+button{cursor:pointer}
+button.pri{background:#2563eb;color:#fff;border-color:#2563eb}
+details{margin:12px 0}
+summary{font-weight:700;font-size:16px;padding:6px 0;border-bottom:2px solid #2563eb;cursor:pointer}
+.r{border:1px solid #e2e8f0;border-radius:8px;padding:9px;margin:8px 0;line-height:1.6}
+.m{color:#64748b;font-size:13px}
+.b{font-size:12px;padding:1px 7px;border-radius:9px;margin-left:6px}
+.red{background:#fecaca}.org{background:#fed7aa}
+dialog{width:min(92vw,520px);border:1px solid #cbd5e1;border-radius:10px;padding:14px}
+dialog label{display:block;font-size:13px;color:#475569;margin-top:6px}
+dialog input,dialog select,dialog textarea{width:100%;box-sizing:border-box}
+</style></head><body>
+<header><b>🎓 Postdoc Tracker</b>
+<button class="pri" onclick="openForm()">+ Add</button>
+<button onclick="csv()">⬇ CSV</button>
+<button onclick="cfg()">⚙ Settings</button></header>
+<main>
+<div><input id="q" placeholder="Search" oninput="render()" style="width:45%">
+<select id="fs" onchange="render()"><option value="">All statuses</option></select></div>
+<p class="m" id="sum"></p>
+<div id="l"></div>
+</main>
+<dialog id="dlg"><div id="fields"></div>
+<div style="margin-top:10px"><button class="pri" onclick="saveForm()">Save</button> <button onclick="$('#dlg').close()">Cancel</button></div></dialog>
+<script>
+const $=s=>document.querySelector(s);
+const ST=['Yet to apply','Applied','Interview','Selected','Rejected','Not applying'];
+const F=[['Country','text'],['Fellowship','text'],['Institute','text'],['Host/PI','text'],['Apply email','text'],['Apply link','text'],['Login ID','text'],['Status','sel'],['Applied date','date'],['Deadline','date'],['Follow-up date','date'],['Documents sent','text'],['Notes','area']];
+let R=[];
+const C=()=>({u:localStorage.tu,t:localStorage.tt});
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const days=d=>Math.round((new Date(d+'T00:00:00')-new Date(today()+'T00:00:00'))/864e5);
+const safeUrl=u=>/^https?:\/\//i.test(u)?u:'#';
+$('#fs').innerHTML+=ST.map(s=>'<option>'+s+'</option>').join('');
+
+function cfg(){
+  const u=prompt('Paste your Apps Script web app URL',C().u||'');
+  if(u===null)return;
+  const t=prompt('Paste your TOKEN',C().t||'');
+  if(t===null)return;
+  localStorage.tu=u.trim();localStorage.tt=t.trim();load();
+}
+async function post(b){
+  const c=C();
+  const r=await fetch(c.u,{method:'POST',body:JSON.stringify({token:c.t,...b})});
+  return r.json();
+}
+async function load(){
+  const c=C();
+  if(!c.u){cfg();return}
+  try{
+    const d=await (await fetch(c.u+'?action=list&token='+encodeURIComponent(c.t))).json();
+    if(d.error){alert('Wrong token or URL. Open Settings.');return}
+    R=d.rows;
+  }catch(e){alert('Cannot reach the Sheet. Check Settings.')}
+  render();
+}
+function card(r){
+  const dl=r.Deadline?days(r.Deadline):null;
+  const open=r.Status==='Yet to apply'||!r.Status;
+  let b='';
+  if(dl!==null&&open){
+    if(dl<0)b='<span class="b red">deadline passed</span>';
+    else if(dl<=7)b='<span class="b org">closes in '+dl+'d</span>';
+  }
+  const fu=(r['Follow-up date']&&r.Status==='Applied'&&days(r['Follow-up date'])<=0)?'<span class="b org">follow up</span>':'';
+  return `<div class="r" data-id="${esc(r.ID)}"><b>${esc(r.Fellowship)}</b>${b}${fu}
+<div class="m">${esc(r.Institute)}${r['Host/PI']?' · '+esc(r['Host/PI']):''}</div>
+<div class="m">Deadline: <b>${esc(r.Deadline||'not set')}</b>${r['Applied date']?' · Applied: '+esc(r['Applied date']):''}${r['Follow-up date']?' · Follow-up: '+esc(r['Follow-up date']):''}</div>
+${r['Apply email']?`<div>✉ ${esc(r['Apply email'])} <button data-a="cp" data-v="${esc(r['Apply email'])}">📋 Copy email</button></div>`:''}
+${r['Apply link']?`<div><a href="${esc(safeUrl(r['Apply link']))}" target="_blank" rel="noopener">Open link ↗</a> <button data-a="cp" data-v="${esc(r['Apply link'])}">📋 Copy link</button></div>`:''}
+${r['Login ID']?`<div class="m">Login ID: ${esc(r['Login ID'])}</div>`:''}
+${r['Documents sent']?`<div class="m">📎 ${esc(r['Documents sent'])}</div>`:''}
+${r.Notes?`<div class="m">📝 ${esc(r.Notes)}</div>`:''}
+<div><select data-a="st">${ST.map(s=>`<option ${r.Status===s?'selected':''}>${s}</option>`).join('')}</select>
+<button data-a="ed">✎ Edit</button> <button data-a="del">🗑</button></div></div>`;
+}
+function render(){
+  const q=$('#q').value.toLowerCase(),fs=$('#fs').value;
+  const rows=R.filter(r=>(!fs||r.Status===fs)&&JSON.stringify(r).toLowerCase().includes(q));
+  const g={};
+  rows.forEach(r=>{const k=String(r.Country||'').trim()||'Unknown';(g[k]=g[k]||[]).push(r)});
+  const keys=Object.keys(g).sort((a,b)=>a==='India'?-1:b==='India'?1:a.localeCompare(b));
+  const n=s=>R.filter(r=>r.Status===s).length;
+  $('#sum').textContent=R.length+' total · '+n('Yet to apply')+' yet to apply · '+n('Applied')+' applied · '+n('Interview')+' interview';
+  $('#l').innerHTML=keys.map(k=>`<details open><summary>${esc(k)} (${g[k].length})</summary>${g[k].sort((a,b)=>(a.Deadline||'9999')<(b.Deadline||'9999')?-1:1).map(card).join('')}</details>`).join('')||'<p class="m">Nothing yet. Tap + Add.</p>';
+}
+function copy(t){
+  if(navigator.clipboard&&window.isSecureContext)return navigator.clipboard.writeText(t);
+  const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();
+}
+$('#l').addEventListener('click',async e=>{
+  const t=e.target.closest('button');if(!t)return;
+  const box=t.closest('.r');const id=box.dataset.id;const r=R.find(x=>x.ID==id);
+  if(t.dataset.a==='cp'){
+    const old=t.textContent;copy(t.dataset.v);t.textContent='✓ Copied';setTimeout(()=>t.textContent=old,1500);
+  }
+  if(t.dataset.a==='ed')openForm(r);
+  if(t.dataset.a==='del'&&confirm('Delete this entry?')){await post({action:'delete',id});await load()}
+});
+$('#l').addEventListener('change',async e=>{
+  if(e.target.dataset.a!=='st')return;
+  const id=e.target.closest('.r').dataset.id,r=R.find(x=>x.ID==id);
+  const rec={ID:id,Status:e.target.value};
+  if(rec.Status==='Applied'&&!r['Applied date'])rec['Applied date']=today();
+  await post({action:'save',record:rec});await load();
+});
+function openForm(r){
+  r=r||{};
+  $('#fields').innerHTML=F.map(([k,t])=>{
+    let inp;
+    if(t==='sel')inp=`<select name="${k}">${ST.map(s=>`<option ${(r.Status||'Yet to apply')===s?'selected':''}>${s}</option>`).join('')}</select>`;
+    else if(t==='area')inp=`<textarea name="${k}" rows="3">${esc(r[k])}</textarea>`;
+    else inp=`<input name="${k}" type="${t==='date'?'date':'text'}" value="${esc(r[k])}">`;
+    return `<label>${k}${inp}</label>`;
+  }).join('');
+  $('#dlg').dataset.id=r.ID||'';
+  $('#dlg').showModal();
+}
+async function saveForm(){
+  const rec={};
+  document.querySelectorAll('#fields [name]').forEach(e=>rec[e.name]=e.value.trim());
+  const id=$('#dlg').dataset.id;if(id)rec.ID=id;
+  if(!rec.Fellowship){alert('Fellowship name is needed');return}
+  if(rec.Status==='Applied'&&!rec['Applied date'])rec['Applied date']=today();
+  if(!id)rec['Added via']='page';
+  const d=await post({action:'save',record:rec});
+  if(d.error){alert('Save failed: '+d.error);return}
+  $('#dlg').close();await load();
+}
+function csv(){
+  if(!R.length){alert('Nothing to export');return}
+  const h=Object.keys(R[0]);
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const t=[h.map(q).join(',')].concat(R.map(r=>h.map(k=>q(r[k])).join(','))).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='postdoc-tracker.csv';a.click();
+}
+load();
+</script></body></html>
